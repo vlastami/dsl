@@ -1,0 +1,14 @@
+kategorie potraviny {
+    rohlík = 3.5
+    mléko = 28
+}
+
+kategorie sladkosti {
+    čokoláda = 30
+    sušenka = 12
+}
+
+polozky()
+filtrovano(min = 20)
+suma(potraviny)
+celkem()
