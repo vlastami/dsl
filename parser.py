@@ -1,53 +1,67 @@
-import re
+from parsy import string, regex, seq, alt, generate
 from ast_nodes import Item, Category, FunctionCall
 
-def parse_receipt_dsl(dsl_text: str):
-    lines = dsl_text.strip().split("\n")
-    i = 0
-    ast = []
+# --- Parsování základních věcí (tokenů) ---
 
-    def parse_block(indent_level=0):
-        nonlocal i
-        block = []
+whitespace = regex(r'[ \t]*')
+newline = regex(r'\s*\n\s*')
+comment = regex(r'#.*').skip(newline.optional())
+empty_line = whitespace.skip(newline)
 
-        while i < len(lines):
-            line = lines[i].strip()
-            if not line:
-                i += 1
-                continue
+ignored = (whitespace >> (comment | empty_line).many())
 
-            if line.startswith("kategorie "):
-                match = re.match(r'kategorie\s+(\w+)\s*\{', line)
-                if not match:
-                    raise SyntaxError(f"Neplatná syntaxe kategorie: {line}")
-                name = match.group(1)
-                i += 1
-                items = parse_block(indent_level + 1)
-                block.append(Category(name=name, items=items))
+identifier = regex(r'[a-zA-ZÀ-ſ_][a-zA-Z0-9À-ſ_]*')
+number = regex(r'\d+(\.\d+)?')
+expression = regex(r'.+')  
 
-            elif line == "}":
-                i += 1
-                break
+lbrace = ignored.then(string('{')).skip(ignored)
+rbrace = ignored.then(string('}')).skip(ignored)
+equals = ignored.then(string('=')).skip(ignored)
 
-            elif "=" in line and not line.startswith("filtrovano") and not line.startswith("suma"):
-                name, expr = line.split("=", 1)
-                block.append(Item(name.strip(), expr.strip()))
-                i += 1
+# --- Parsování konstrukcí jazyka (item, funkce, kategorie) ---
 
-            elif "(" in line and line.endswith(")"):
-                match = re.match(r"(\w+)\((.*?)\)", line)
-                if match:
-                    func_name = match.group(1)
-                    argument = match.group(2).strip()
-                    block.append(FunctionCall(name=func_name, argument=argument))
-                    i += 1
-                else:
-                    raise SyntaxError(f"Neplatná syntaxe funkce: {line}")
+@generate
+def item():
+    yield ignored
+    name = yield identifier.skip(whitespace)   # název položky
+    yield equals                               # rovnítko
+    expr = yield expression.map(str.strip)     # výraz napravo
+    yield (newline | ignored).optional()       # nový řádek (nebo konec)
+    return Item(name=name, value_expr=expr)
 
-            else:
-                raise SyntaxError(f"Neznámý řádek: {line}")
+@generate
+def function_call():
+    yield ignored
+    func_name = yield identifier               # název funkce
+    yield string('(')
+    arg = yield regex(r'[^)]*').map(str.strip)  # argument vevnitř (cokoliv až do ')')
+    yield string(')')
+    yield (newline | ignored).optional()
+    return FunctionCall(name=func_name, argument=arg)
 
-        return block
+@generate
+def category():
+    yield ignored
+    yield string('kategorie').skip(whitespace)  # slovo "kategorie"
+    cat_name = yield identifier.skip(whitespace)  # jméno kategorie
+    yield lbrace
+    items = yield block                         # vnořený blok
+    yield rbrace
+    yield (newline | ignored).optional()
+    return Category(name=cat_name, items=items)
 
-    ast = parse_block()
-    return ast
+# --- Rekurzivní blok věcí uvnitř (položky, funkce, kategorie) ---
+
+@generate
+def block():
+    statements = yield (ignored.then(item | function_call | category)).many()
+    return statements
+
+# --- Vstupní bod - hlavní parser ---
+
+def parse_receipt_dsl(text: str):
+    try:
+        result = block.parse(text.strip())  # začnu parsovat od začátku
+        return result
+    except Exception as e:
+        raise SyntaxError(f"Chyba při parsování: {e}")

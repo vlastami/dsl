@@ -4,13 +4,15 @@ from typing import List, Union
 
 def eval_expr(expr: str) -> float:
     try:
-        return eval(expr, {"__builtins__": {}})
+        return eval(expr, {"__builtins__": {}})  # bezpečné eval bez vnitřních funkcí
     except Exception as e:
         raise ValueError(f"Chyba při vyhodnocení výrazu '{expr}': {e}")
 
+# hlavní evaluátor
 def evaluate(ast: List[Union[Item, Category, FunctionCall]]):
     all_items = []
 
+    # pomocná funkce - rozbalí všechny položky z kategorií
     def flatten_items(node):
         if isinstance(node, Item):
             return [node]
@@ -22,11 +24,14 @@ def evaluate(ast: List[Union[Item, Category, FunctionCall]]):
         else:
             return []
 
+    # posbírej všechny položky z AST
     for node in ast:
         all_items.extend(flatten_items(node))
 
+    # spočítej celkovou cenu
     total = sum(eval_expr(item.value_expr) for item in all_items)
 
+    # projdi všechny funkce v AST
     for node in ast:
         if isinstance(node, FunctionCall):
             if node.name == "celkem":
@@ -38,7 +43,8 @@ def evaluate(ast: List[Union[Item, Category, FunctionCall]]):
 
             elif node.name == "filtrovano":
                 try:
-                    arg_match = re.match(r"min\s*=\s*([\d.]+)", node.argument)
+                    # vytáhni minimální cenu z argumentu
+                    arg_match = re.match(r"min\\s*=\\s*([\\d.]+)", node.argument)
                     if arg_match:
                         min_price = float(arg_match.group(1))
                         for item in all_items:
@@ -51,6 +57,7 @@ def evaluate(ast: List[Union[Item, Category, FunctionCall]]):
                     print(f"Chyba při filtrování: {e}")
 
             elif node.name == "suma":
+                # součet položek z dané kategorie
                 category_name = node.argument.strip()
                 def suma_kategorie(nodes):
                     suma = 0.0
